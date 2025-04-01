@@ -190,10 +190,77 @@ class JiraAIAssistant:
         
         return True
     
+    def analyze_tasks_semantically(self, tasks: List[Dict], query: str) -> List[Dict]:
+        """Use LLM to analyze tasks semantically based on the user's query"""
+        analysis_prompt = """
+        You are a task analysis expert. Your task is to analyze a list of JIRA tasks and determine which ones are relevant to the user's query, even if the exact words don't match.
+        
+        User's query: {query}
+        
+        Available tasks:
+        {tasks}
+        
+        Return a JSON array of relevant tasks, with each task including:
+        - key: The JIRA issue key
+        - summary: The task summary
+        - relevance_score: A number from 0-1 indicating how relevant the task is
+        - relevance_explanation: A brief explanation of why this task is relevant
+        
+        Example format:
+        [
+            {
+                "key": "SCRUM-123",
+                "summary": "Clean up the garden",
+                "relevance_score": 0.9,
+                "relevance_explanation": "Directly related to yardwork as it involves garden maintenance"
+            }
+        ]
+        
+        Consider:
+        1. Semantic similarity (e.g., "garden" is related to "yardwork")
+        2. Task context and implications
+        3. Related activities or areas
+        4. Task descriptions and comments
+        
+        Return ONLY the JSON array, nothing else.
+        """
+        
+        try:
+            # Format tasks for the prompt
+            tasks_text = "\n".join([
+                f"Key: {task['key']}\nSummary: {task['fields']['summary']}\nDescription: {task['fields'].get('description', 'No description')}"
+                for task in tasks
+            ])
+            
+            # Get LLM analysis
+            analysis_response = self.llm_client.generate_response(
+                query,
+                analysis_prompt.format(
+                    query=query,
+                    tasks=tasks_text
+                )
+            ).strip()
+            
+            # Parse the response
+            relevant_tasks = json.loads(analysis_response)
+            
+            # Sort by relevance score
+            relevant_tasks.sort(key=lambda x: x['relevance_score'], reverse=True)
+            
+            return relevant_tasks
+            
+        except Exception as e:
+            if self.verbose:
+                logger.error(f"Error in semantic analysis: {str(e)}")
+            return []
+
     def process_query(self, question: str) -> str:
         """Process a user query and return a response"""
+        print("PROCESSING QUERY:", question)
+        logger = logging.getLogger(__name__)
+        
         if self.verbose:
-            logging.info(f"\nProcessing query: {question}")
+            logger.info(f"\nProcessing query: {question}")
         
         # First check if this is a task creation request
         creation_prompt = """
@@ -230,7 +297,7 @@ class JiraAIAssistant:
             creation_data = json.loads(creation_response)
             if creation_data.get("is_create_request"):
                 if self.verbose:
-                    logging.info("Detected task creation request")
+                    logger.info("Detected task creation request")
                 return self.create_new_issue(
                     summary=creation_data["summary"],
                     description=creation_data["description"],
@@ -240,7 +307,7 @@ class JiraAIAssistant:
                 )
         except json.JSONDecodeError:
             if self.verbose:
-                logging.error("Failed to parse creation response")
+                logger.error("Failed to parse creation response")
         
         # Then check if this is an assignment request
         assignment_prompt = """
@@ -260,87 +327,25 @@ class JiraAIAssistant:
         
         if is_assignment_request == "yes":
             if self.verbose:
-                logging.info("Detected assignment request")
+                logger.info("Detected assignment request")
             return self.bulk_assign_issues()
         
-        # Generate initial JQL query from the question
-        jql_query = self.generate_jql_query(question)
-        
-        # Try different search strategies if no results found
-        search_strategies = [
-            {"query": jql_query, "description": "original criteria"},
-            {"query": jql_query.replace("priority = Highest", "priority in (Highest, High)"), "description": "high priority"},
-            {"query": jql_query.replace("priority = Highest", "priority in (Highest, High, Medium)"), "description": "medium priority"},
-            {"query": jql_query.replace("priority = Highest", ""), "description": "any priority"}
-        ]
-        
-        issues = None
-        used_strategy = None
-        
-        for strategy in search_strategies:
-            if self.verbose:
-                logging.info(f"\nTrying search strategy: {strategy['description']}")
-                logging.info(f"Using JQL: {strategy['query']}")
+        # For other queries, fetch all assigned tasks and analyze them semantically
+        if self.fetch_issues('project = "SCRUM" AND assignee = currentUser() ORDER BY updated DESC'):
+            tasks = self.issues
+            relevant_tasks = self.analyze_tasks_semantically(tasks, question)
             
-            if self.fetch_issues(strategy['query']):
-                issues = self.issues
-                used_strategy = strategy
-                break
-        
-        if not issues:
-            # If still no issues found, try a broader search
-            system_prompt = """
-            You are a helpful JIRA assistant. The user's query returned no matching issues.
-            Your task is to explain why no issues were found and suggest what they might want to try instead.
-            Be helpful and constructive in your response.
-            """
-            
-            user_prompt = f"""
-            The user asked: {question}
-            
-            The JQL query used was: {jql_query}
-            
-            No matching issues were found. Please explain why this might be and suggest what they could try instead.
-            """
-            
-            return self.llm_client.generate_response(user_prompt, system_prompt)
-        
-        # Create a more concise system prompt
-        system_prompt = """
-        You are a helpful JIRA assistant. Your task is to analyze JIRA issues and provide concise, focused responses.
-        
-        Important guidelines:
-        1. Be direct and concise - no unnecessary pleasantries or filler text
-        2. Focus on the most relevant information first
-        3. Include only essential details: issue key, summary, priority, status, and story points
-        4. If you had to broaden the search criteria, mention this briefly
-        5. For task suggestions, focus on the task's key attributes that make it suitable
-        6. Keep responses under 2-3 sentences unless more detail is specifically requested
-        
-        Example format:
-        "SCRUM-123: Implement login page (High priority, 5 points, To Do)"
-        """
-        
-        # Create a more focused user prompt
-        user_prompt = f"""
-        Based on these JIRA issues, please answer this question concisely:
-        {question}
-        
-        Here are the relevant issues:
-        {json.dumps(self.issues_context, indent=2)}
-        
-        Search strategy used: {used_strategy['description'] if used_strategy else 'original criteria'}
-        
-        Provide a focused response that highlights the most relevant information.
-        """
-        
-        # Get response from LLM
-        response = self.llm_client.generate_response(user_prompt, system_prompt)
-        
-        if self.verbose:
-            logging.info(f"Generated response: {response}")
-        
-        return response
+            if relevant_tasks:
+                # Format the response
+                response = "Here are the tasks that might be relevant to your query:\n\n"
+                for task in relevant_tasks:
+                    response += f"{task['key']}: {task['summary']}\n"
+                    response += f"Relevance: {task['relevance_explanation']}\n\n"
+                return response
+            else:
+                return "I couldn't find any tasks that seem relevant to your query. Would you like to try rephrasing it?"
+        else:
+            return "I couldn't fetch your tasks. Please try again."
     
     def get_issue_details(self, issue_key: str) -> Dict[str, Any]:
         """Get detailed information about a specific issue"""

@@ -1,44 +1,89 @@
-# JIRA LLM Integration
+# Guppy - JIRA AI Assistant
 
-This project provides a simple interface to interact with JIRA using Python and potentially integrate with LLMs.
+Guppy is an AI-powered command-line interface for interacting with JIRA. It allows you to create tasks, view your current tasks, and get intelligent task suggestions using natural language.
+
+## Features
+
+- Natural language task creation
+- Smart task filtering and prioritization
+- Story point estimation
+- Due date management
+- Bulk task assignment
+- Priority-based task suggestions
+- Task duration recommendations
 
 ## Setup
 
-1. Clone this repository
-2. Install required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Update the `.env` file with your JIRA credentials:
-   ```
-   JIRA_EMAIL=your-email@example.com
-   JIRA_API_TOKEN=your-jira-api-token
-   JIRA_DOMAIN=your-domain.atlassian.net
-   ```
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/guppy.git
+cd guppy
+```
+
+2. Create and activate a virtual environment:
+```bash
+./setup_venv.sh
+source venv/bin/activate
+```
+
+3. Create a `.env` file with your JIRA credentials:
+```
+JIRA_URL=your_jira_url
+JIRA_EMAIL=your_email
+JIRA_API_TOKEN=your_api_token
+OPENAI_API_KEY=your_openai_api_key
+```
 
 ## Usage
 
-### Fetching All Issues
-
-To fetch all issues from your JIRA board, run:
-
-```
-python jira_client.py
+Run the assistant:
+```bash
+python3 jira_ai_assistant.py
 ```
 
-This will display a list of the 10 most recent issues with their keys, summaries, and statuses.
+Or with verbose logging:
+```bash
+python3 jira_ai_assistant.py --verbose
+```
 
-## Extending the Project
+### Example Commands
 
-This project provides a foundation for building LLM-powered JIRA interactions. You can extend it by:
+- Create a new task:
+  ```
+  Create a new task for implementing the login page with 5 story points
+  ```
 
-1. Adding more JIRA API endpoints
-2. Integrating with an LLM for generating summaries or insights
-3. Creating automated workflows for JIRA tasks
-4. Building a chat interface for interacting with your JIRA data
+- View your tasks:
+  ```
+  Show me my high priority tasks
+  ```
 
-## Security Notes
+- Get task suggestions:
+  ```
+  What's a good task for me to work on now?
+  ```
 
-- Never commit your `.env` file with real credentials to version control
-- Consider adding `.env` to your `.gitignore` file
-- Rotate your API tokens regularly for security 
+- Assign tasks:
+  ```
+  Assign all unassigned tasks to me
+  ```
+
+## Project Structure
+
+- `jira_ai_assistant.py`: Main assistant implementation
+- `jira_client_fixed.py`: JIRA API client
+- `llm_client.py`: OpenAI API client
+- `setup_venv.sh`: Virtual environment setup script
+- `requirements.txt`: Python dependencies
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+MIT License - see LICENSE file for details 
